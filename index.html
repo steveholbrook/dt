@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Technical Downtime Tracking App - Production</title>
   <!-- PWA manifest and theme color -->
-  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="manifest" href="./manifest.webmanifest">
   <meta name="theme-color" content="#0a6ed1">
   <!-- jsPDF and html2canvas for PDF generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha512-qZvrmS2ekKPF2mSznTQsxqPgnpkI4DNTlrdUmTzrDgektczlKNRRhy5X5AAOnx5S09ydFYWWNSfcEqDTTHgtNA==" crossorigin="anonymous"></script>
@@ -593,10 +593,22 @@
     border-radius: 3px;
   }
   
-  .quality-diamond + .block-label-external{
-    left:100%;
-    margin-right:0;
-    margin-left:6px;
+  /* Quality gate label - horizontal and to the LEFT of diamond */
+  .quality-gate-label{
+    position:absolute;
+    right:100%;
+    margin-right:8px;
+    white-space:nowrap;
+    color:var(--sap-text);
+    font-size:11px;
+    font-weight:600;
+    top:50%;
+    transform:translateY(-50%);
+    pointer-events:none;
+    background: rgba(255,255,255,0.95);
+    padding: 2px 6px;
+    border-radius: 3px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
   }
   
   /* Critical path indicators */
@@ -1098,7 +1110,8 @@ window.AppState = {
   dragOffset: 0,
   completionTimes: {},
   isFirstUser: false,
-  syncedTimelinePosition: 0
+  syncedTimelinePosition: 0,
+  renderLock: false
 };
 
 // Constants
@@ -1274,6 +1287,12 @@ function displayValidationWarnings() {
   }
 }
 
+// Check if element is actively being edited
+function isElementActive(element) {
+  const active = document.activeElement;
+  return active && (active === element || element.contains(active));
+}
+
 // Runbook Management Functions
 window.addRunbookRow = function() {
   const runbook = {
@@ -1299,61 +1318,93 @@ window.addRunbookRow = function() {
 };
 
 function renderRunbookTable() {
+  if (window.AppState.renderLock) return;
+  
   const tbody = document.getElementById('runbookBody');
   if (!tbody) return;
   
-  tbody.innerHTML = '';
+  // Don't re-render if user is actively editing
+  const activeElement = document.activeElement;
+  if (activeElement && tbody.contains(activeElement) && 
+      (activeElement.tagName === 'INPUT' || activeElement.tagName === 'SELECT')) {
+    return;
+  }
   
-  window.AppState.runbooks.sort((a, b) => a.sequence - b.sequence);
+  window.AppState.renderLock = true;
   
-  window.AppState.runbooks.forEach(runbook => {
-    const row = document.createElement('tr');
-    const editingDisabled = (window.AppState.downtimeStarted && !window.AppState.downtimePaused) ? 'disabled' : '';
-    row.innerHTML = `
-      <td>
-        <input type="number" min="1" max="30" value="${runbook.sequence}" 
-               style="width:50px;" onchange="updateSequence(${runbook.id}, this.value)" ${editingDisabled}>
-      </td>
-      <td>
-        <select onchange="updateStrategy(${runbook.id}, this.value)" ${editingDisabled}>
-          ${STRATEGIES.map(s => `<option value="${s}" ${runbook.strategy === s ? 'selected' : ''}>${s}</option>`).join('')}
-        </select>
-      </td>
-      <td>
-        <select onchange="updatePhase(${runbook.id}, this.value)" ${editingDisabled}>
-          ${PHASES.map(p => `<option value="${p}" ${runbook.phase === p ? 'selected' : ''}>${p}</option>`).join('')}
-        </select>
-      </td>
-      <td>
-        <input type="text" value="${runbook.runblock || ''}" placeholder="Enter runblock name" 
-               maxlength="50" style="width:100%;"
-               onchange="updateRunblock(${runbook.id}, this.value)" ${editingDisabled}>
-      </td>
-      <td>
-        <input type="text" value="${runbook.responsibility || ''}" placeholder="Enter responsibility" 
-               maxlength="40" style="width:100%;"
-               onchange="updateResponsibility(${runbook.id}, this.value)" ${editingDisabled}>
-      </td>
-      <td class="critical-cell center">
-        <input type="checkbox" class="critical-checkbox" 
-               ${runbook.critical ? 'checked' : ''} 
-               onchange="updateCritical(${runbook.id}, this.checked)" ${editingDisabled}>
-      </td>
-      <td class="center">
-        <button class="btn small danger" onclick="removeRunbook(${runbook.id})" ${editingDisabled}>Remove</button>
-      </td>
-    `;
-    tbody.appendChild(row);
-  });
+  try {
+    const currentRows = Array.from(tbody.querySelectorAll('tr'));
+    window.AppState.runbooks.sort((a, b) => a.sequence - b.sequence);
+    
+    // Update or create rows
+    window.AppState.runbooks.forEach((runbook, index) => {
+      let row = currentRows[index];
+      const editingDisabled = (window.AppState.downtimeStarted && !window.AppState.downtimePaused) ? 'disabled' : '';
+      
+      const rowHTML = `
+        <td>
+          <input type="number" min="1" max="30" value="${runbook.sequence}" 
+                 style="width:50px;" onchange="updateSequence(${runbook.id}, this.value)" ${editingDisabled}>
+        </td>
+        <td>
+          <select onchange="updateStrategy(${runbook.id}, this.value)" ${editingDisabled}>
+            ${STRATEGIES.map(s => `<option value="${s}" ${runbook.strategy === s ? 'selected' : ''}>${s}</option>`).join('')}
+          </select>
+        </td>
+        <td>
+          <select onchange="updatePhase(${runbook.id}, this.value)" ${editingDisabled}>
+            ${PHASES.map(p => `<option value="${p}" ${runbook.phase === p ? 'selected' : ''}>${p}</option>`).join('')}
+          </select>
+        </td>
+        <td>
+          <input type="text" value="${runbook.runblock || ''}" placeholder="Enter runblock name" 
+                 maxlength="50" style="width:100%;"
+                 onchange="updateRunblock(${runbook.id}, this.value)" ${editingDisabled}>
+        </td>
+        <td>
+          <input type="text" value="${runbook.responsibility || ''}" placeholder="Enter responsibility" 
+                 maxlength="40" style="width:100%;"
+                 onchange="updateResponsibility(${runbook.id}, this.value)" ${editingDisabled}>
+        </td>
+        <td class="critical-cell center">
+          <input type="checkbox" class="critical-checkbox" 
+                 ${runbook.critical ? 'checked' : ''} 
+                 onchange="updateCritical(${runbook.id}, this.checked)" ${editingDisabled}>
+        </td>
+        <td class="center">
+          <button class="btn small danger" onclick="removeRunbook(${runbook.id})" ${editingDisabled}>Remove</button>
+        </td>
+      `;
+      
+      if (!row) {
+        row = document.createElement('tr');
+        tbody.appendChild(row);
+      }
+      
+      // Only update if not focused
+      if (!isElementActive(row)) {
+        row.innerHTML = rowHTML;
+      }
+    });
+    
+    // Remove extra rows
+    while (tbody.children.length > window.AppState.runbooks.length) {
+      tbody.removeChild(tbody.lastChild);
+    }
+  } finally {
+    window.AppState.renderLock = false;
+  }
 }
 
 window.updateSequence = function(id, value) {
   const runbook = window.AppState.runbooks.find(r => r.id === id);
   if (runbook) {
     runbook.sequence = parseInt(value) || 1;
-    renderRunbookTable();
-    updateTimeline();
-    displayValidationWarnings();
+    setTimeout(() => {
+      renderRunbookTable();
+      updateTimeline();
+      displayValidationWarnings();
+    }, 100);
   }
 };
 
@@ -1361,7 +1412,7 @@ window.updateStrategy = function(id, value) {
   const runbook = window.AppState.runbooks.find(r => r.id === id);
   if (runbook) {
     runbook.strategy = value;
-    updateTimeline();
+    setTimeout(() => updateTimeline(), 100);
   }
 };
 
@@ -1369,7 +1420,7 @@ window.updatePhase = function(id, value) {
   const runbook = window.AppState.runbooks.find(r => r.id === id);
   if (runbook) {
     runbook.phase = value;
-    updateTimeline();
+    setTimeout(() => updateTimeline(), 100);
   }
 };
 
@@ -1377,7 +1428,7 @@ window.updateRunblock = function(id, value) {
   const runbook = window.AppState.runbooks.find(r => r.id === id);
   if (runbook) {
     runbook.runblock = value;
-    updateTimeline();
+    setTimeout(() => updateTimeline(), 100);
   }
 };
 
@@ -1392,8 +1443,10 @@ window.updateCritical = function(id, value) {
   const runbook = window.AppState.runbooks.find(r => r.id === id);
   if (runbook) {
     runbook.critical = value;
-    updateTimeline();
-    displayValidationWarnings();
+    setTimeout(() => {
+      updateTimeline();
+      displayValidationWarnings();
+    }, 100);
   }
 };
 
@@ -1506,8 +1559,9 @@ function createTimelineRow(runbook, index) {
       diamond.style.boxShadow = '0 0 8px rgba(255, 0, 0, 0.6)';
     }
     
+    // Add horizontal label to the LEFT of diamond
     const label = document.createElement('div');
-    label.className = 'block-label-external';
+    label.className = 'quality-gate-label';
     label.textContent = runbook.runblock;
     label.title = `${runbook.runblock} - ${runbook.phase}`;
     diamond.appendChild(label);
@@ -1710,7 +1764,7 @@ window.updateScheduleTime = function(id, value) {
     runbook.scheduleHours = hours;
     runbook.scheduleMinutes = minutes;
     
-    updateTimeline();
+    setTimeout(() => updateTimeline(), 100);
   }
 };
 
@@ -1723,7 +1777,7 @@ window.updateDurationTime = function(id, value) {
     
     runbook.durationHours = hours;
     runbook.durationMinutes = minutes;
-    updateTimeline();
+    setTimeout(() => updateTimeline(), 100);
   }
 };
 
@@ -2125,6 +2179,24 @@ window.generatePDFReport = async function() {
   const dateStr = new Date().toISOString().slice(0,10);
   pdf.save(`${safeCustomerName}_downtime_report_${dateStr}.pdf`);
 };
+
+// Dropdown focus management - prevent premature closing
+document.addEventListener('mousedown', function(e) {
+  if (e.target.tagName === 'SELECT' || e.target.closest('select')) {
+    e.target.__dropdownFocus = true;
+    setTimeout(() => {
+      delete e.target.__dropdownFocus;
+    }, 300);
+  }
+}, true);
+
+document.addEventListener('blur', function(e) {
+  if (e.target.tagName === 'SELECT' && e.target.__dropdownFocus) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.target.focus();
+  }
+}, true);
 
 </script>
 
@@ -2597,7 +2669,8 @@ document.getElementById("rt-reset").onclick = async function() {
     dragOffset: 0,
     completionTimes: {},
     isFirstUser: false,
-    syncedTimelinePosition: 0
+    syncedTimelinePosition: 0,
+    renderLock: false
   };
   
   // Reset UI
@@ -2616,157 +2689,6 @@ console.log("Firebase sync initialized - Mode:", window.canWrite() ? "HOST" : "V
 </script>
 
 <script src="./sw-register.js"></script>
-
-<style id="patch-v1-4-0">
-.timeline-row { position: relative; }
-.qg-label-outside {
-  position: absolute;
-  white-space: nowrap;
-  font-weight: 600;
-  text-shadow: 0 1px 0 rgba(255,255,255,0.6);
-  pointer-events: none;
-  color: #333;
-}
-.dropdown, [role="listbox"], [data-dropdown] { position: relative; }
-.dropdown-menu, [role="listbox"] { z-index: 1000; }
-</style>
-
-<script id="patch-v1-4-0-js">
-(function(){
-  const PARAM_IDS = ['customerName','transformCycle','downtimeDuration','startTimeInput'];
-  const isParam = (el) => el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && PARAM_IDS.includes(el.id);
-  const isDropdownRoot = (el) => !!el && (el.closest?.('.dropdown, [data-dropdown], [role="listbox"], .select, .select-menu'));
-  const recent = { t: 0 };
-
-  // Prevent DOM clobber while typing or interacting with dropdowns
-  (function guardMutations(){
-    const skipIfEditing = (ctx) => {
-      try {
-        const active = document.activeElement;
-        const now = performance.now();
-        const interactingDropdown = isDropdownRoot(active) || (now - recent.t) < 250;
-        if ((isParam(active) || interactingDropdown) && ctx.contains(active)) return true;
-      } catch {}
-      return false;
-    };
-    const wrap = (proto, name) => {
-      const orig = proto[name];
-      if (!orig || orig.__patched140) return;
-      Object.defineProperty(proto, name, {
-        value: function(){
-          if (skipIfEditing(this)) return this;
-          return orig.apply(this, arguments);
-        }
-      });
-      proto[name].__patched140 = true;
-    };
-    wrap(Element.prototype, 'replaceChildren');
-    wrap(Element.prototype, 'append');
-    wrap(Element.prototype, 'prepend');
-    wrap(Node.prototype, 'replaceChild');
-    wrap(Node.prototype, 'removeChild');
-    const ih = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
-    if (ih && ih.set && !Element.prototype.__innerHTMLPatched140) {
-      const set = ih.set;
-      Object.defineProperty(Element.prototype, 'innerHTML', {
-        get: ih.get,
-        set: function(v){
-          if (skipIfEditing(this)) return;
-          return set.call(this, v);
-        }
-      });
-      Element.prototype.__innerHTMLPatched140 = true;
-    }
-  })();
-
-  // Preserve focus/value/caret during light re-renders
-  const st = { id: null, val: null, s: null, e: null };
-  document.addEventListener('focusin', e=>{
-    const el = e.target;
-    if (isParam(el)) {
-      st.id = el.id;
-      try { st.s = el.selectionStart; st.e = el.selectionEnd; } catch {}
-      st.val = el.value;
-    }
-  }, true);
-  document.addEventListener('input', e=>{ if (isParam(e.target)) st.val = e.target.value; }, true);
-  const restore = () => {
-    if (!st.id) return;
-    const el = document.getElementById(st.id);
-    if (!isParam(el)) return;
-    if (typeof st.val === 'string' && el.value !== st.val) {
-      el.value = st.val;
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-    if (document.activeElement !== el) el.focus({ preventScroll: true });
-    try { el.setSelectionRange(st.s ?? el.value.length, st.e ?? el.value.length); } catch {}
-  };
-  const mo = new MutationObserver(() => restore());
-  window.addEventListener('DOMContentLoaded', () => {
-    try { mo.observe(document.body, { childList: true, subtree: true }); } catch {}
-  });
-
-  // Ignore programmatic value writes while typing in a parameter
-  try {
-    const d = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
-    if (d && d.set && !HTMLInputElement.prototype.__patched140Val) {
-      Object.defineProperty(HTMLInputElement.prototype, 'value', {
-        get: d.get,
-        set: function(v){
-          try { if (isParam(this) && document.activeElement === this) return; } catch {}
-          return d.set.call(this, v);
-        }
-      });
-      HTMLInputElement.prototype.__patched140Val = true;
-    }
-  } catch {}
-
-  // Dropdowns: prevent premature blur by consuming pointerdown inside menus;
-  // mark recency to defer clobber guards briefly while selecting.
-  document.addEventListener('pointerdown', (e) => {
-    const menu = e.target && (e.target.closest?.('[role="listbox"], .dropdown-menu, [data-dropdown], .select-menu'));
-    if (menu) { recent.t = performance.now(); e.preventDefault(); }
-  }, true);
-  document.addEventListener('click', (e) => {
-    if (e.target && (e.target.closest?.('[role="listbox"], .dropdown-menu, [data-dropdown], .select-menu'))) {
-      recent.t = performance.now();
-    }
-  }, true);
-
-  // Quality Gate Label: outside & horizontal
-  function ensureQGLabelsOutside(){
-    const nodes = document.querySelectorAll('.timeline-row .diamond.quality-gate, .timeline-row .quality-gate .diamond, .timeline-row .qg.diamond, .timeline-row .quality-gate');
-    nodes.forEach(node => {
-      const row = node.closest('.timeline-row') || node.parentElement;
-      if (!row) return;
-      let text = node.getAttribute('data-label') ||
-                 (node.dataset && (node.dataset.label || node.dataset.runblock || node.dataset.name)) || '';
-      if (!text) {
-        const lbl = node.querySelector?.('.label, .runblock-label, [data-role="label"]');
-        if (lbl) text = (lbl.textContent || '').trim();
-      }
-      if (!text && node.textContent) text = node.textContent.trim();
-      let span = row.querySelector('.qg-label-outside');
-      if (!span) { span = document.createElement('span'); span.className = 'qg-label-outside'; row.appendChild(span); }
-      if (text) span.textContent = text;
-      requestAnimationFrame(() => {
-        const rb = node.getBoundingClientRect();
-        const pb = row.getBoundingClientRect();
-        span.style.left = ((rb.left - pb.left) - 8 - span.offsetWidth) + 'px';
-        span.style.top  = ((node.offsetTop + (node.offsetHeight/2)) - (span.offsetHeight/2)) + 'px';
-      });
-    });
-  }
-  const moQG = new MutationObserver(() => ensureQGLabelsOutside());
-  window.addEventListener('DOMContentLoaded', () => {
-    ensureQGLabelsOutside();
-    try { moQG.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style','class'] }); } catch {}
-    window.addEventListener('resize', ensureQGLabelsOutside);
-    window.addEventListener('scroll', ensureQGLabelsOutside, true);
-  });
-})();
-</script>
 
 </body>
 </html>
