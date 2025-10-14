@@ -2615,141 +2615,124 @@ document.getElementById("rt-reset").onclick = async function() {
 console.log("Firebase sync initialized - Mode:", window.canWrite() ? "HOST" : "VIEWER");
 </script>
 
-  <script src="./sw-register.js"></script>
+<script src="./sw-register.js"></script>
 
-<!-- v1.2.0 additive patch: quality-gate label placement & validation behavior -->
 <style id="patch-v1-2-0">
-/* Ensure quality gate container is a positioning context */
-.timeline-row .quality-gate,
-.timeline-row .qualityGate,
-.timeline-row .qg,
-.timeline-row .diamond.quality-gate {
-  position: relative;
-}
-
-/* Place label horizontally in front (to the left) of the orange diamond */
-.timeline-row .quality-gate .label,
-.timeline-row .qualityGate .label,
-.timeline-row .qg .label,
-.timeline-row .diamond.quality-gate .label,
-.qg-label {
-  position: absolute;
-  left: -8px;
-  top: 50%;
-  transform: translate(-100%, -50%);
-  white-space: nowrap;
-  font-weight: 600;
-  text-shadow: 0 1px 0 rgba(255,255,255,0.6);
-  pointer-events: none;
-}
-
-/* Stop flashing for validation banners */
-#validation, #validationMessages, .validation, .warnings, [data-role="validation"] {
-  animation: none !important;
-  transition: none !important;
-  opacity: 1 !important;
-}
+.timeline-row .quality-gate, .timeline-row .qualityGate, .timeline-row .qg, .timeline-row .diamond.quality-gate { position: relative; }
+.qg-label { position:absolute; left:-8px; top:50%; transform: translate(-100%, -50%); white-space:nowrap; font-weight:600; text-shadow:0 1px 0 rgba(255,255,255,.6); pointer-events:none; }
+#validation, #validationMessages, .validation, .warnings, [data-role="validation"] { animation:none!important; transition:none!important; opacity:1!important; }
 </style>
-
 
 <script id="patch-v1-2-0-js">
 (function(){
-  function qsAll(sel){ return Array.prototype.slice.call(document.querySelectorAll(sel)); }
-
-  // 1) Quality gate labels: ensure a left-positioned label exists
-  function ensureQualityGateLabels(){
-    const selectors = [
-      '.timeline-row .quality-gate',
-      '.timeline-row .qualityGate',
-      '.timeline-row .qg',
-      '.timeline-row .diamond.quality-gate'
-    ];
-    const nodes = qsAll(selectors.join(','));
-    nodes.forEach(node => {
-      // Try to find label text
-      let labelText = node.getAttribute('data-label') ||
-                      (node.dataset && (node.dataset.label || node.dataset.runblock || node.dataset.name)) || '';
-      if(!labelText){
-        const lbl = node.querySelector('.label, .runblock-label, [data-role="label"]');
-        if(lbl) labelText = (lbl.textContent || '').trim();
+  function $all(s){ return Array.prototype.slice.call(document.querySelectorAll(s)); }
+  function ensureQGLabels(){
+    const nodes = $all('.timeline-row .quality-gate, .timeline-row .qualityGate, .timeline-row .qg, .timeline-row .diamond.quality-gate');
+    nodes.forEach(n => {
+      let t = n.getAttribute('data-label') || (n.dataset && (n.dataset.label || n.dataset.runblock || n.dataset.name)) || '';
+      if(!t){
+        const lbl = n.querySelector('.label, .runblock-label, [data-role="label"]');
+        if(lbl) t = (lbl.textContent||'').trim();
       }
-      if(!labelText && node.textContent){
-        labelText = node.textContent.trim();
-      }
-      // Create or update positioned label
-      let badge = node.querySelector('.qg-label');
-      if(!badge){
-        badge = document.createElement('span');
-        badge.className = 'qg-label';
-        badge.setAttribute('aria-hidden', 'true');
-        node.appendChild(badge);
-      }
-      if(labelText) badge.textContent = labelText;
+      if(!t && n.textContent) t = n.textContent.trim();
+      let badge = n.querySelector('.qg-label');
+      if(!badge){ badge = document.createElement('span'); badge.className='qg-label'; badge.setAttribute('aria-hidden','true'); n.appendChild(badge); }
+      if(t) badge.textContent = t;
     });
   }
-
-  // 2) Validation banners: stop flashing and dismiss on Start
   function stopValidationFlashing(){
-    const banners = qsAll('#validation, #validationMessages, .validation, .warnings, [data-role="validation"]');
-    banners.forEach(el => {
-      el.style.animation = 'none';
-      el.style.transition = 'none';
-      el.style.opacity = '1';
-      // Remove common flashing classes
-      try {
-        if (el.classList) {
-          ['flash','flashing','blink','blinking','pulse','pulsing'].forEach(c => el.classList.remove(c));
-        }
-      } catch {}
+    $all('#validation, #validationMessages, .validation, .warnings, [data-role="validation"]').forEach(el => {
+      el.style.animation='none'; el.style.transition='none'; el.style.opacity='1';
+      try{ ['flash','flashing','blink','blinking','pulse','pulsing'].forEach(c=>el.classList.remove(c)); }catch(e){}
     });
   }
-
   function dismissValidation(){
-    const banners = qsAll('#validation, #validationMessages, .validation, .warnings, [data-role="validation"]');
-    banners.forEach(el => {
-      el.style.display = 'none';
-      el.setAttribute('data-dismissed', 'true');
-    });
+    $all('#validation, #validationMessages, .validation, .warnings, [data-role="validation"]').forEach(el => { el.style.display='none'; el.setAttribute('data-dismissed','true'); });
   }
-
-  function hookStartButton(){
-    const candidates = qsAll('button, [role="button"]');
-    candidates.forEach(btn => {
-      const txt = (btn.textContent || '').toLowerCase().trim();
-      if(/start\s*downtime/.test(txt) || txt === 'start' || txt.startsWith('start ')) {
-        if(!btn.dataset.patchStartHook){
-          btn.addEventListener('click', () => {
-            dismissValidation();
-            stopValidationFlashing();
-          }, { capture: true });
-          btn.dataset.patchStartHook = '1';
-        }
+  function hookStart(){
+    $all('button, [role="button"]').forEach(b => {
+      const t=(b.textContent||'').toLowerCase();
+      if((/start\s*downtime/.test(t) || /^start(\s|$)/.test(t)) && !b.dataset._qgHook){
+        b.addEventListener('click', ()=>{ dismissValidation(); stopValidationFlashing(); }, {capture:true});
+        b.dataset._qgHook='1';
       }
     });
   }
-
-  // Observe DOM changes to re-apply fixes
-  const mo = new MutationObserver(() => {
-    ensureQualityGateLabels();
-    stopValidationFlashing();
-    hookStartButton();
+  const mo=new MutationObserver(()=>{ ensureQGLabels(); stopValidationFlashing(); hookStart(); });
+  window.addEventListener('DOMContentLoaded', ()=>{
+    ensureQGLabels(); stopValidationFlashing(); hookStart();
+    try{ mo.observe(document.body,{childList:true,subtree:true,attributes:true}); }catch(e){}
   });
+})();</script>
 
-  if (document.readyState === 'loading') {
-    window.addEventListener('DOMContentLoaded', () => {
-      ensureQualityGateLabels();
-      stopValidationFlashing();
-      hookStartButton();
-      try { mo.observe(document.body, { childList: true, subtree: true, attributes: true }); } catch(e){}
-    });
-  } else {
-    ensureQualityGateLabels();
-    stopValidationFlashing();
-    hookStartButton();
-    try { mo.observe(document.body, { childList: true, subtree: true, attributes: true }); } catch(e){}
+
+<style id="patch-v1-3-0">
+.qg-label { transform: translate(-100%, -50%) rotate(-45deg); transform-origin:left center; writing-mode:horizontal-tb; text-orientation:mixed; }
+.timeline-row .quality-gate:not([style*="rotate"]):not(.rotated) .qg-label,
+.timeline-row .qualityGate:not([style*="rotate"]):not(.rotated) .qg-label,
+.timeline-row .qg:not([style*="rotate"]):not(.rotated) .qg-label { transform: translate(-100%, -50%); }
+</style>
+
+<script id="patch-v1-3-0-js">
+(function(){
+  const PARAM_IDS=['customerName','transformCycle','downtimeDuration','startTimeInput'];
+  const st={ focusedId:null, sel:null, lastVal:null };
+  function onFocus(e){
+    const el=e.target;
+    if(!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return;
+    if(!PARAM_IDS.includes(el.id)) return;
+    st.focusedId=el.id;
+    try{ st.sel={s:el.selectionStart,e:el.selectionEnd}; }catch{}
+    st.lastVal=el.value;
   }
-})();
-</script>
+  function onInput(e){
+    const el=e.target;
+    if(!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return;
+    if(!PARAM_IDS.includes(el.id)) return;
+    st.lastVal=el.value;
+  }
+  function restore(){
+    if(!st.focusedId) return;
+    const el=document.getElementById(st.focusedId);
+    if(!el) return;
+    if(typeof st.lastVal==='string' && el.value!==st.lastVal){
+      el.value=st.lastVal;
+      el.dispatchEvent(new Event('input',{bubbles:true}));
+      el.dispatchEvent(new Event('change',{bubbles:true}));
+    }
+    if(document.activeElement!==el){ el.focus({preventScroll:true}); }
+    try{ if(st.sel && typeof st.sel.s==='number'){ el.setSelectionRange(st.sel.s, st.sel.e ?? st.sel.s); } }catch{}
+  }
+  try{
+    const d=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');
+    if(d && d.set && !HTMLInputElement.prototype.__patchedForParams){
+      Object.defineProperty(HTMLInputElement.prototype,'value',{
+        get:d.get,
+        set:function(v){
+          try{ if(PARAM_IDS.includes(this.id) && document.activeElement===this){ return; } }catch{}
+          return d.set.call(this,v);
+        }
+      });
+      Object.defineProperty(HTMLInputElement.prototype,'__patchedForParams',{value:true});
+    }
+  }catch{}
+  document.addEventListener('focusin', onFocus, true);
+  document.addEventListener('input', onInput, true);
+  const mo=new MutationObserver(()=>restore());
+  window.addEventListener('DOMContentLoaded', ()=>{ try{ mo.observe(document.body,{childList:true,subtree:true}); }catch{} });
+  let t=null; document.addEventListener('keyup', ()=>{ if(t) clearTimeout(t); t=setTimeout(restore,80); });
+
+  function fixQG(){
+    document.querySelectorAll('.timeline-row .quality-gate, .timeline-row .qualityGate, .timeline-row .qg, .timeline-row .diamond.quality-gate').forEach(n=>{
+      const label=n.querySelector('.qg-label'); if(!label) return;
+      const tr=(getComputedStyle(n).transform||''); label.style.transform = (tr && tr!=='none')
+        ? 'translate(-100%, -50%) rotate(-45deg)'
+        : 'translate(-100%, -50%)';
+    });
+  }
+  const mo2=new MutationObserver(fixQG);
+  window.addEventListener('DOMContentLoaded', ()=>{ fixQG(); try{ mo2.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['style','class']}); }catch{} });
+})();</script>
 
 </body>
 </html>
