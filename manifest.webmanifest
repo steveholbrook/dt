@@ -1,0 +1,9 @@
+{
+  "name": "Technical Downtime Tracking",
+  "short_name": "DTracker",
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0a6ed1",
+  "background_color": "#f7f7f7",
+  "icons": []
+}
