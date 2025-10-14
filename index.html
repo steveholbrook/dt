@@ -2617,122 +2617,82 @@ console.log("Firebase sync initialized - Mode:", window.canWrite() ? "HOST" : "V
 
 <script src="./sw-register.js"></script>
 
-<style id="patch-v1-2-0">
-.timeline-row .quality-gate, .timeline-row .qualityGate, .timeline-row .qg, .timeline-row .diamond.quality-gate { position: relative; }
-.qg-label { position:absolute; left:-8px; top:50%; transform: translate(-100%, -50%); white-space:nowrap; font-weight:600; text-shadow:0 1px 0 rgba(255,255,255,.6); pointer-events:none; }
-#validation, #validationMessages, .validation, .warnings, [data-role="validation"] { animation:none!important; transition:none!important; opacity:1!important; }
+<style id="patch-v1-3-1">
+.timeline-row { position: relative; }
+.qg-label-outside {
+  position: absolute;
+  white-space: nowrap;
+  font-weight: 600;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.6);
+  pointer-events: none;
+  color: #333;
+}
 </style>
 
-<script id="patch-v1-2-0-js">
+<script id="patch-v1-3-1-js">
 (function(){
-  function $all(s){ return Array.prototype.slice.call(document.querySelectorAll(s)); }
-  function ensureQGLabels(){
-    const nodes = $all('.timeline-row .quality-gate, .timeline-row .qualityGate, .timeline-row .qg, .timeline-row .diamond.quality-gate');
-    nodes.forEach(n => {
-      let t = n.getAttribute('data-label') || (n.dataset && (n.dataset.label || n.dataset.runblock || n.dataset.name)) || '';
-      if(!t){
-        const lbl = n.querySelector('.label, .runblock-label, [data-role="label"]');
-        if(lbl) t = (lbl.textContent||'').trim();
-      }
-      if(!t && n.textContent) t = n.textContent.trim();
-      let badge = n.querySelector('.qg-label');
-      if(!badge){ badge = document.createElement('span'); badge.className='qg-label'; badge.setAttribute('aria-hidden','true'); n.appendChild(badge); }
-      if(t) badge.textContent = t;
-    });
-  }
-  function stopValidationFlashing(){
-    $all('#validation, #validationMessages, .validation, .warnings, [data-role="validation"]').forEach(el => {
-      el.style.animation='none'; el.style.transition='none'; el.style.opacity='1';
-      try{ ['flash','flashing','blink','blinking','pulse','pulsing'].forEach(c=>el.classList.remove(c)); }catch(e){}
-    });
-  }
-  function dismissValidation(){
-    $all('#validation, #validationMessages, .validation, .warnings, [data-role="validation"]').forEach(el => { el.style.display='none'; el.setAttribute('data-dismissed','true'); });
-  }
-  function hookStart(){
-    $all('button, [role="button"]').forEach(b => {
-      const t=(b.textContent||'').toLowerCase();
-      if((/start\s*downtime/.test(t) || /^start(\s|$)/.test(t)) && !b.dataset._qgHook){
-        b.addEventListener('click', ()=>{ dismissValidation(); stopValidationFlashing(); }, {capture:true});
-        b.dataset._qgHook='1';
-      }
-    });
-  }
-  const mo=new MutationObserver(()=>{ ensureQGLabels(); stopValidationFlashing(); hookStart(); });
-  window.addEventListener('DOMContentLoaded', ()=>{
-    ensureQGLabels(); stopValidationFlashing(); hookStart();
-    try{ mo.observe(document.body,{childList:true,subtree:true,attributes:true}); }catch(e){}
-  });
-})();</script>
+  const PARAM_IDS = ['customerName','transformCycle','downtimeDuration','startTimeInput'];
+  function isParam(el){ return el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && PARAM_IDS.includes(el.id); }
 
-
-<style id="patch-v1-3-0">
-.qg-label { transform: translate(-100%, -50%) rotate(-45deg); transform-origin:left center; writing-mode:horizontal-tb; text-orientation:mixed; }
-.timeline-row .quality-gate:not([style*="rotate"]):not(.rotated) .qg-label,
-.timeline-row .qualityGate:not([style*="rotate"]):not(.rotated) .qg-label,
-.timeline-row .qg:not([style*="rotate"]):not(.rotated) .qg-label { transform: translate(-100%, -50%); }
-</style>
-
-<script id="patch-v1-3-0-js">
-(function(){
-  const PARAM_IDS=['customerName','transformCycle','downtimeDuration','startTimeInput'];
-  const st={ focusedId:null, sel:null, lastVal:null };
-  function onFocus(e){
-    const el=e.target;
-    if(!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return;
-    if(!PARAM_IDS.includes(el.id)) return;
-    st.focusedId=el.id;
-    try{ st.sel={s:el.selectionStart,e:el.selectionEnd}; }catch{}
-    st.lastVal=el.value;
-  }
-  function onInput(e){
-    const el=e.target;
-    if(!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return;
-    if(!PARAM_IDS.includes(el.id)) return;
-    st.lastVal=el.value;
-  }
-  function restore(){
-    if(!st.focusedId) return;
-    const el=document.getElementById(st.focusedId);
-    if(!el) return;
-    if(typeof st.lastVal==='string' && el.value!==st.lastVal){
-      el.value=st.lastVal;
-      el.dispatchEvent(new Event('input',{bubbles:true}));
-      el.dispatchEvent(new Event('change',{bubbles:true}));
+  // Prevent DOM clobber while typing
+  (function guardWrites(){
+    const methods = [[Element.prototype,'replaceChildren'],[Element.prototype,'append'],[Element.prototype,'prepend'],[Node.prototype,'replaceChild'],[Node.prototype,'removeChild']];
+    methods.forEach(([p,n])=>{
+      const o=p[n]; if(!o || o.__patched131) return;
+      Object.defineProperty(p,n,{ value:function(){ try{ const a=document.activeElement; if(isParam(a) && this.contains(a)) return this; }catch{} return o.apply(this,arguments);} });
+      p[n].__patched131 = true;
+    });
+    const ih = Object.getOwnPropertyDescriptor(Element.prototype,'innerHTML');
+    if (ih && ih.set && !Element.prototype.__innerHTMLPatched131) {
+      const s=ih.set;
+      Object.defineProperty(Element.prototype,'innerHTML',{ get: ih.get, set: function(v){ try{ const a=document.activeElement; if(isParam(a) && this.contains(a)) return; }catch{} return s.call(this,v); } });
+      Element.prototype.__innerHTMLPatched131 = true;
     }
-    if(document.activeElement!==el){ el.focus({preventScroll:true}); }
-    try{ if(st.sel && typeof st.sel.s==='number'){ el.setSelectionRange(st.sel.s, st.sel.e ?? st.sel.s); } }catch{}
-  }
+  })();
+
+  // Preserve focus/value/caret
+  const st={ id:null, val:null, s:null, e:null };
+  document.addEventListener('focusin', e=>{ if(isParam(e.target)){ st.id=e.target.id; try{ st.s=e.target.selectionStart; st.e=e.target.selectionEnd;}catch{} st.val=e.target.value; } }, true);
+  document.addEventListener('input', e=>{ if(isParam(e.target)) st.val=e.target.value; }, true);
+  function restore(){ if(!st.id) return; const el=document.getElementById(st.id); if(!isParam(el)) return;
+    if(typeof st.val==='string' && el.value!==st.val){ el.value=st.val; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); }
+    if(document.activeElement!==el) el.focus({preventScroll:true}); try{ el.setSelectionRange(st.s??el.value.length, st.e??el.value.length);}catch{} }
+  const mo=new MutationObserver(()=>restore()); window.addEventListener('DOMContentLoaded',()=>{ try{ mo.observe(document.body,{childList:true,subtree:true}); }catch{} });
+
   try{
     const d=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');
-    if(d && d.set && !HTMLInputElement.prototype.__patchedForParams){
-      Object.defineProperty(HTMLInputElement.prototype,'value',{
-        get:d.get,
-        set:function(v){
-          try{ if(PARAM_IDS.includes(this.id) && document.activeElement===this){ return; } }catch{}
-          return d.set.call(this,v);
-        }
-      });
-      Object.defineProperty(HTMLInputElement.prototype,'__patchedForParams',{value:true});
+    if(d && d.set && !HTMLInputElement.prototype.__patched131Val){
+      Object.defineProperty(HTMLInputElement.prototype,'value',{ get:d.get, set:function(v){ try{ if(isParam(this) && document.activeElement===this) return; }catch{} return d.set.call(this,v);} });
+      HTMLInputElement.prototype.__patched131Val = true;
     }
   }catch{}
-  document.addEventListener('focusin', onFocus, true);
-  document.addEventListener('input', onInput, true);
-  const mo=new MutationObserver(()=>restore());
-  window.addEventListener('DOMContentLoaded', ()=>{ try{ mo.observe(document.body,{childList:true,subtree:true}); }catch{} });
-  let t=null; document.addEventListener('keyup', ()=>{ if(t) clearTimeout(t); t=setTimeout(restore,80); });
 
-  function fixQG(){
-    document.querySelectorAll('.timeline-row .quality-gate, .timeline-row .qualityGate, .timeline-row .qg, .timeline-row .diamond.quality-gate').forEach(n=>{
-      const label=n.querySelector('.qg-label'); if(!label) return;
-      const tr=(getComputedStyle(n).transform||''); label.style.transform = (tr && tr!=='none')
-        ? 'translate(-100%, -50%) rotate(-45deg)'
-        : 'translate(-100%, -50%)';
+  // Quality gate label as sibling outside the diamond
+  function ensureQGLabelsOutside(){
+    const nodes=document.querySelectorAll('.timeline-row .diamond.quality-gate, .timeline-row .quality-gate .diamond, .timeline-row .qg.diamond, .timeline-row .quality-gate');
+    nodes.forEach(node=>{
+      const row=node.closest('.timeline-row')||node.parentElement; if(!row) return;
+      let text=node.getAttribute('data-label')||(node.dataset&&(node.dataset.label||node.dataset.runblock||node.dataset.name))||'';
+      if(!text){ const lbl=node.querySelector?.('.label, .runblock-label, [data-role=\"label\"]'); if(lbl) text=(lbl.textContent||'').trim(); }
+      if(!text && node.textContent) text=node.textContent.trim();
+      let span=row.querySelector('.qg-label-outside'); if(!span){ span=document.createElement('span'); span.className='qg-label-outside'; row.appendChild(span); }
+      if(text) span.textContent=text;
+      requestAnimationFrame(()=>{
+        const rb=node.getBoundingClientRect(), pb=row.getBoundingClientRect();
+        // compute position before diamond
+        span.style.left = (rb.left - pb.left - 8 - span.offsetWidth) + 'px';
+        span.style.top  = (node.offsetTop + node.offsetHeight/2 - span.offsetHeight/2) + 'px';
+      });
     });
   }
-  const mo2=new MutationObserver(fixQG);
-  window.addEventListener('DOMContentLoaded', ()=>{ fixQG(); try{ mo2.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['style','class']}); }catch{} });
-})();</script>
+  const mo2=new MutationObserver(()=>ensureQGLabelsOutside());
+  window.addEventListener('DOMContentLoaded',()=>{
+    ensureQGLabelsOutside();
+    try{ mo2.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['style','class']}); }catch{}
+    window.addEventListener('resize', ensureQGLabelsOutside);
+  });
+})();
+</script>
 
 </body>
 </html>

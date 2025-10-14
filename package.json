@@ -1,6 +1,6 @@
 {
-  "name": "downtime-tracker-static",
-  "version": "1.3.0",
+  "name": "downtime-tracker-lite",
+  "version": "1.3.1",
   "private": true,
   "scripts": {
     "serve": "http-server -p 8080 -c-1 .",
