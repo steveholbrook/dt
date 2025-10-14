@@ -1,0 +1,16 @@
+{
+  "name": "downtime-tracker-static",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "serve": "http-server -p 8080 -c-1 .",
+    "test:e2e": "playwright test",
+    "test:install": "npx playwright install --with-deps",
+    "lint": "eslint . --ext .js,.ts"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1",
+    "@playwright/test": "^1.48.2",
+    "eslint": "^9.11.0"
+  }
+}
