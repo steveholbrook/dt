@@ -2617,7 +2617,7 @@ console.log("Firebase sync initialized - Mode:", window.canWrite() ? "HOST" : "V
 
 <script src="./sw-register.js"></script>
 
-<style id="patch-v1-3-1">
+<style id="patch-v1-4-0">
 .timeline-row { position: relative; }
 .qg-label-outside {
   position: absolute;
@@ -2627,69 +2627,143 @@ console.log("Firebase sync initialized - Mode:", window.canWrite() ? "HOST" : "V
   pointer-events: none;
   color: #333;
 }
+.dropdown, [role="listbox"], [data-dropdown] { position: relative; }
+.dropdown-menu, [role="listbox"] { z-index: 1000; }
 </style>
 
-<script id="patch-v1-3-1-js">
+<script id="patch-v1-4-0-js">
 (function(){
   const PARAM_IDS = ['customerName','transformCycle','downtimeDuration','startTimeInput'];
-  function isParam(el){ return el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && PARAM_IDS.includes(el.id); }
+  const isParam = (el) => el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && PARAM_IDS.includes(el.id);
+  const isDropdownRoot = (el) => !!el && (el.closest?.('.dropdown, [data-dropdown], [role="listbox"], .select, .select-menu'));
+  const recent = { t: 0 };
 
-  // Prevent DOM clobber while typing
-  (function guardWrites(){
-    const methods = [[Element.prototype,'replaceChildren'],[Element.prototype,'append'],[Element.prototype,'prepend'],[Node.prototype,'replaceChild'],[Node.prototype,'removeChild']];
-    methods.forEach(([p,n])=>{
-      const o=p[n]; if(!o || o.__patched131) return;
-      Object.defineProperty(p,n,{ value:function(){ try{ const a=document.activeElement; if(isParam(a) && this.contains(a)) return this; }catch{} return o.apply(this,arguments);} });
-      p[n].__patched131 = true;
-    });
-    const ih = Object.getOwnPropertyDescriptor(Element.prototype,'innerHTML');
-    if (ih && ih.set && !Element.prototype.__innerHTMLPatched131) {
-      const s=ih.set;
-      Object.defineProperty(Element.prototype,'innerHTML',{ get: ih.get, set: function(v){ try{ const a=document.activeElement; if(isParam(a) && this.contains(a)) return; }catch{} return s.call(this,v); } });
-      Element.prototype.__innerHTMLPatched131 = true;
+  // Prevent DOM clobber while typing or interacting with dropdowns
+  (function guardMutations(){
+    const skipIfEditing = (ctx) => {
+      try {
+        const active = document.activeElement;
+        const now = performance.now();
+        const interactingDropdown = isDropdownRoot(active) || (now - recent.t) < 250;
+        if ((isParam(active) || interactingDropdown) && ctx.contains(active)) return true;
+      } catch {}
+      return false;
+    };
+    const wrap = (proto, name) => {
+      const orig = proto[name];
+      if (!orig || orig.__patched140) return;
+      Object.defineProperty(proto, name, {
+        value: function(){
+          if (skipIfEditing(this)) return this;
+          return orig.apply(this, arguments);
+        }
+      });
+      proto[name].__patched140 = true;
+    };
+    wrap(Element.prototype, 'replaceChildren');
+    wrap(Element.prototype, 'append');
+    wrap(Element.prototype, 'prepend');
+    wrap(Node.prototype, 'replaceChild');
+    wrap(Node.prototype, 'removeChild');
+    const ih = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+    if (ih && ih.set && !Element.prototype.__innerHTMLPatched140) {
+      const set = ih.set;
+      Object.defineProperty(Element.prototype, 'innerHTML', {
+        get: ih.get,
+        set: function(v){
+          if (skipIfEditing(this)) return;
+          return set.call(this, v);
+        }
+      });
+      Element.prototype.__innerHTMLPatched140 = true;
     }
   })();
 
-  // Preserve focus/value/caret
-  const st={ id:null, val:null, s:null, e:null };
-  document.addEventListener('focusin', e=>{ if(isParam(e.target)){ st.id=e.target.id; try{ st.s=e.target.selectionStart; st.e=e.target.selectionEnd;}catch{} st.val=e.target.value; } }, true);
-  document.addEventListener('input', e=>{ if(isParam(e.target)) st.val=e.target.value; }, true);
-  function restore(){ if(!st.id) return; const el=document.getElementById(st.id); if(!isParam(el)) return;
-    if(typeof st.val==='string' && el.value!==st.val){ el.value=st.val; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); }
-    if(document.activeElement!==el) el.focus({preventScroll:true}); try{ el.setSelectionRange(st.s??el.value.length, st.e??el.value.length);}catch{} }
-  const mo=new MutationObserver(()=>restore()); window.addEventListener('DOMContentLoaded',()=>{ try{ mo.observe(document.body,{childList:true,subtree:true}); }catch{} });
-
-  try{
-    const d=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');
-    if(d && d.set && !HTMLInputElement.prototype.__patched131Val){
-      Object.defineProperty(HTMLInputElement.prototype,'value',{ get:d.get, set:function(v){ try{ if(isParam(this) && document.activeElement===this) return; }catch{} return d.set.call(this,v);} });
-      HTMLInputElement.prototype.__patched131Val = true;
+  // Preserve focus/value/caret during light re-renders
+  const st = { id: null, val: null, s: null, e: null };
+  document.addEventListener('focusin', e=>{
+    const el = e.target;
+    if (isParam(el)) {
+      st.id = el.id;
+      try { st.s = el.selectionStart; st.e = el.selectionEnd; } catch {}
+      st.val = el.value;
     }
-  }catch{}
+  }, true);
+  document.addEventListener('input', e=>{ if (isParam(e.target)) st.val = e.target.value; }, true);
+  const restore = () => {
+    if (!st.id) return;
+    const el = document.getElementById(st.id);
+    if (!isParam(el)) return;
+    if (typeof st.val === 'string' && el.value !== st.val) {
+      el.value = st.val;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    if (document.activeElement !== el) el.focus({ preventScroll: true });
+    try { el.setSelectionRange(st.s ?? el.value.length, st.e ?? el.value.length); } catch {}
+  };
+  const mo = new MutationObserver(() => restore());
+  window.addEventListener('DOMContentLoaded', () => {
+    try { mo.observe(document.body, { childList: true, subtree: true }); } catch {}
+  });
 
-  // Quality gate label as sibling outside the diamond
+  // Ignore programmatic value writes while typing in a parameter
+  try {
+    const d = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    if (d && d.set && !HTMLInputElement.prototype.__patched140Val) {
+      Object.defineProperty(HTMLInputElement.prototype, 'value', {
+        get: d.get,
+        set: function(v){
+          try { if (isParam(this) && document.activeElement === this) return; } catch {}
+          return d.set.call(this, v);
+        }
+      });
+      HTMLInputElement.prototype.__patched140Val = true;
+    }
+  } catch {}
+
+  // Dropdowns: prevent premature blur by consuming pointerdown inside menus;
+  // mark recency to defer clobber guards briefly while selecting.
+  document.addEventListener('pointerdown', (e) => {
+    const menu = e.target && (e.target.closest?.('[role="listbox"], .dropdown-menu, [data-dropdown], .select-menu'));
+    if (menu) { recent.t = performance.now(); e.preventDefault(); }
+  }, true);
+  document.addEventListener('click', (e) => {
+    if (e.target && (e.target.closest?.('[role="listbox"], .dropdown-menu, [data-dropdown], .select-menu'))) {
+      recent.t = performance.now();
+    }
+  }, true);
+
+  // Quality Gate Label: outside & horizontal
   function ensureQGLabelsOutside(){
-    const nodes=document.querySelectorAll('.timeline-row .diamond.quality-gate, .timeline-row .quality-gate .diamond, .timeline-row .qg.diamond, .timeline-row .quality-gate');
-    nodes.forEach(node=>{
-      const row=node.closest('.timeline-row')||node.parentElement; if(!row) return;
-      let text=node.getAttribute('data-label')||(node.dataset&&(node.dataset.label||node.dataset.runblock||node.dataset.name))||'';
-      if(!text){ const lbl=node.querySelector?.('.label, .runblock-label, [data-role=\"label\"]'); if(lbl) text=(lbl.textContent||'').trim(); }
-      if(!text && node.textContent) text=node.textContent.trim();
-      let span=row.querySelector('.qg-label-outside'); if(!span){ span=document.createElement('span'); span.className='qg-label-outside'; row.appendChild(span); }
-      if(text) span.textContent=text;
-      requestAnimationFrame(()=>{
-        const rb=node.getBoundingClientRect(), pb=row.getBoundingClientRect();
-        // compute position before diamond
-        span.style.left = (rb.left - pb.left - 8 - span.offsetWidth) + 'px';
-        span.style.top  = (node.offsetTop + node.offsetHeight/2 - span.offsetHeight/2) + 'px';
+    const nodes = document.querySelectorAll('.timeline-row .diamond.quality-gate, .timeline-row .quality-gate .diamond, .timeline-row .qg.diamond, .timeline-row .quality-gate');
+    nodes.forEach(node => {
+      const row = node.closest('.timeline-row') || node.parentElement;
+      if (!row) return;
+      let text = node.getAttribute('data-label') ||
+                 (node.dataset && (node.dataset.label || node.dataset.runblock || node.dataset.name)) || '';
+      if (!text) {
+        const lbl = node.querySelector?.('.label, .runblock-label, [data-role="label"]');
+        if (lbl) text = (lbl.textContent || '').trim();
+      }
+      if (!text && node.textContent) text = node.textContent.trim();
+      let span = row.querySelector('.qg-label-outside');
+      if (!span) { span = document.createElement('span'); span.className = 'qg-label-outside'; row.appendChild(span); }
+      if (text) span.textContent = text;
+      requestAnimationFrame(() => {
+        const rb = node.getBoundingClientRect();
+        const pb = row.getBoundingClientRect();
+        span.style.left = ((rb.left - pb.left) - 8 - span.offsetWidth) + 'px';
+        span.style.top  = ((node.offsetTop + (node.offsetHeight/2)) - (span.offsetHeight/2)) + 'px';
       });
     });
   }
-  const mo2=new MutationObserver(()=>ensureQGLabelsOutside());
-  window.addEventListener('DOMContentLoaded',()=>{
+  const moQG = new MutationObserver(() => ensureQGLabelsOutside());
+  window.addEventListener('DOMContentLoaded', () => {
     ensureQGLabelsOutside();
-    try{ mo2.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['style','class']}); }catch{}
+    try { moQG.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style','class'] }); } catch {}
     window.addEventListener('resize', ensureQGLabelsOutside);
+    window.addEventListener('scroll', ensureQGLabelsOutside, true);
   });
 })();
 </script>
