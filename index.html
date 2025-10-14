@@ -2616,5 +2616,140 @@ console.log("Firebase sync initialized - Mode:", window.canWrite() ? "HOST" : "V
 </script>
 
   <script src="./sw-register.js"></script>
+
+<!-- v1.2.0 additive patch: quality-gate label placement & validation behavior -->
+<style id="patch-v1-2-0">
+/* Ensure quality gate container is a positioning context */
+.timeline-row .quality-gate,
+.timeline-row .qualityGate,
+.timeline-row .qg,
+.timeline-row .diamond.quality-gate {
+  position: relative;
+}
+
+/* Place label horizontally in front (to the left) of the orange diamond */
+.timeline-row .quality-gate .label,
+.timeline-row .qualityGate .label,
+.timeline-row .qg .label,
+.timeline-row .diamond.quality-gate .label,
+.qg-label {
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translate(-100%, -50%);
+  white-space: nowrap;
+  font-weight: 600;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.6);
+  pointer-events: none;
+}
+
+/* Stop flashing for validation banners */
+#validation, #validationMessages, .validation, .warnings, [data-role="validation"] {
+  animation: none !important;
+  transition: none !important;
+  opacity: 1 !important;
+}
+</style>
+
+
+<script id="patch-v1-2-0-js">
+(function(){
+  function qsAll(sel){ return Array.prototype.slice.call(document.querySelectorAll(sel)); }
+
+  // 1) Quality gate labels: ensure a left-positioned label exists
+  function ensureQualityGateLabels(){
+    const selectors = [
+      '.timeline-row .quality-gate',
+      '.timeline-row .qualityGate',
+      '.timeline-row .qg',
+      '.timeline-row .diamond.quality-gate'
+    ];
+    const nodes = qsAll(selectors.join(','));
+    nodes.forEach(node => {
+      // Try to find label text
+      let labelText = node.getAttribute('data-label') ||
+                      (node.dataset && (node.dataset.label || node.dataset.runblock || node.dataset.name)) || '';
+      if(!labelText){
+        const lbl = node.querySelector('.label, .runblock-label, [data-role="label"]');
+        if(lbl) labelText = (lbl.textContent || '').trim();
+      }
+      if(!labelText && node.textContent){
+        labelText = node.textContent.trim();
+      }
+      // Create or update positioned label
+      let badge = node.querySelector('.qg-label');
+      if(!badge){
+        badge = document.createElement('span');
+        badge.className = 'qg-label';
+        badge.setAttribute('aria-hidden', 'true');
+        node.appendChild(badge);
+      }
+      if(labelText) badge.textContent = labelText;
+    });
+  }
+
+  // 2) Validation banners: stop flashing and dismiss on Start
+  function stopValidationFlashing(){
+    const banners = qsAll('#validation, #validationMessages, .validation, .warnings, [data-role="validation"]');
+    banners.forEach(el => {
+      el.style.animation = 'none';
+      el.style.transition = 'none';
+      el.style.opacity = '1';
+      // Remove common flashing classes
+      try {
+        if (el.classList) {
+          ['flash','flashing','blink','blinking','pulse','pulsing'].forEach(c => el.classList.remove(c));
+        }
+      } catch {}
+    });
+  }
+
+  function dismissValidation(){
+    const banners = qsAll('#validation, #validationMessages, .validation, .warnings, [data-role="validation"]');
+    banners.forEach(el => {
+      el.style.display = 'none';
+      el.setAttribute('data-dismissed', 'true');
+    });
+  }
+
+  function hookStartButton(){
+    const candidates = qsAll('button, [role="button"]');
+    candidates.forEach(btn => {
+      const txt = (btn.textContent || '').toLowerCase().trim();
+      if(/start\s*downtime/.test(txt) || txt === 'start' || txt.startsWith('start ')) {
+        if(!btn.dataset.patchStartHook){
+          btn.addEventListener('click', () => {
+            dismissValidation();
+            stopValidationFlashing();
+          }, { capture: true });
+          btn.dataset.patchStartHook = '1';
+        }
+      }
+    });
+  }
+
+  // Observe DOM changes to re-apply fixes
+  const mo = new MutationObserver(() => {
+    ensureQualityGateLabels();
+    stopValidationFlashing();
+    hookStartButton();
+  });
+
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', () => {
+      ensureQualityGateLabels();
+      stopValidationFlashing();
+      hookStartButton();
+      try { mo.observe(document.body, { childList: true, subtree: true, attributes: true }); } catch(e){}
+    });
+  } else {
+    ensureQualityGateLabels();
+    stopValidationFlashing();
+    hookStartButton();
+    try { mo.observe(document.body, { childList: true, subtree: true, attributes: true }); } catch(e){}
+  }
+})();
+</script>
+
 </body>
 </html>
